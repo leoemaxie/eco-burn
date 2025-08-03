@@ -12,6 +12,7 @@ import {
 import { Logo } from '@/components/logo';
 import { MainNav } from '@/components/main-nav';
 import { Search } from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function DashboardLayout({
   children,
@@ -50,6 +51,7 @@ export default function DashboardLayout({
                     <Search className="h-5 w-5"/>
                     <span className="sr-only">Search</span>
                 </Button>
+                <ThemeToggle />
                 <Avatar>
                     <AvatarImage src="https://placehold.co/100x100" alt="User Avatar" data-ai-hint="profile photo"/>
                     <AvatarFallback>U</AvatarFallback>
