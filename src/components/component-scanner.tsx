@@ -10,20 +10,23 @@ import {
   AlertTriangle,
   Sparkles,
   Zap,
+  ThumbsUp,
+  ThumbsDown,
+  Recycle,
+  Flame,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { runClassification } from '@/app/dashboard/scan/actions';
 import type { ClassifyComponentOutput } from '@/ai/flows/classify-component';
 import { useToast } from '@/hooks/use-toast';
-import { Badge } from './ui/badge';
 import Image from 'next/image';
 import { generateUpcyclingIdeas } from '@/ai/flows/generate-upcycling-ideas';
 
 type Status = 'idle' | 'camera_active' | 'loading' | 'results';
 type AIResult = ClassifyComponentOutput & { error?: undefined };
-type AIError = { error: string };
+type FeedbackStatus = 'unsubmitted' | 'submitted';
 
 export function ComponentScanner() {
   const [status, setStatus] = useState<Status>('idle');
@@ -32,6 +35,7 @@ export function ComponentScanner() {
   const [result, setResult] = useState<AIResult | null>(null);
   const [upcyclingIdeas, setUpcyclingIdeas] = useState<string[]>([]);
   const [isIdeasLoading, setIdeasLoading] = useState(false);
+  const [feedback, setFeedback] = useState<FeedbackStatus>('unsubmitted');
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -66,12 +70,31 @@ export function ComponentScanner() {
     }
   };
 
-  const handleStopCamera = () => {
+  const processImage = async (dataUrl: string) => {
+    setCapturedImage(dataUrl);
     stopCamera();
-    setStatus('idle');
-    setCapturedImage(null);
+    setStatus('loading');
     setResult(null);
+    setUpcyclingIdeas([]);
+    setFeedback('unsubmitted');
+
+    const response = await runClassification(dataUrl);
+    if ('error' in response) {
+      toast({
+        variant: 'destructive',
+        title: 'Classification Failed',
+        description: response.error,
+      });
+      setStatus('idle');
+    } else {
+      setResult(response as AIResult);
+      setStatus('results');
+      if(response.recyclable) {
+        handleGenerateIdeas(response.componentType);
+      }
+    }
   };
+
 
   const handleCapture = async () => {
     if (videoRef.current && canvasRef.current) {
@@ -83,21 +106,7 @@ export function ComponentScanner() {
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const dataUrl = canvas.toDataURL('image/jpeg');
-        setCapturedImage(dataUrl);
-        stopCamera();
-        setStatus('loading');
-        const response = await runClassification(dataUrl);
-        if ('error' in response) {
-          toast({
-            variant: 'destructive',
-            title: 'Classification Failed',
-            description: response.error,
-          });
-          setStatus('idle');
-        } else {
-          setResult(response as AIResult);
-          setStatus('results');
-        }
+        processImage(dataUrl);
       }
     }
   };
@@ -109,34 +118,20 @@ export function ComponentScanner() {
       reader.onload = async (e) => {
         const dataUrl = e.target?.result as string;
         if (dataUrl) {
-          setCapturedImage(dataUrl);
-          stopCamera();
-          setStatus('loading');
-          const response = await runClassification(dataUrl);
-          if ('error' in response) {
-            toast({
-              variant: 'destructive',
-              title: 'Classification Failed',
-              description: response.error,
-            });
-            setStatus('idle');
-          } else {
-            setResult(response as AIResult);
-            setStatus('results');
-          }
+          processImage(dataUrl);
         }
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const handleGenerateIdeas = async () => {
-    if (result) {
+  const handleGenerateIdeas = async (componentType: string) => {
+    if (componentType) {
       setIdeasLoading(true);
       setUpcyclingIdeas([]);
       try {
         const response = await generateUpcyclingIdeas({
-          componentType: result.componentType,
+          componentType: componentType,
         });
         setUpcyclingIdeas(response.ideas);
       } catch (error) {
@@ -150,10 +145,35 @@ export function ComponentScanner() {
       }
     }
   };
+  
+  const handleFeedback = (isCorrect: boolean) => {
+    setFeedback('submitted');
+    // In a real application, this feedback would be sent to a backend
+    // for retraining or analysis.
+    console.log(`Feedback received: Classification was ${isCorrect ? 'correct' : 'incorrect'}.`);
+    toast({
+        title: "Feedback Submitted",
+        description: "Thank you for helping us improve our AI!",
+    })
+  };
 
   const resetScanner = () => {
-    handleStopCamera();
+    stopCamera();
+    setStatus('idle');
+    setCapturedImage(null);
+    setResult(null);
+    setUpcyclingIdeas([]);
+    setFeedback('unsubmitted');
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
   };
+
+  const getConfidenceColor = (score: number) => {
+    if (score > 0.9) return 'text-green-600 dark:text-green-400';
+    if (score > 0.7) return 'text-yellow-600 dark:text-yellow-400';
+    return 'text-red-600 dark:text-red-400';
+  }
 
   return (
     <Card className="w-full max-w-2xl mx-auto shadow-lg">
@@ -222,14 +242,14 @@ export function ComponentScanner() {
               />
             </>
           )}
-          {status === 'camera_active' && (
+           {status === 'camera_active' && (
             <>
               <Button onClick={handleCapture} className="w-full sm:w-auto">
                 <Camera className="mr-2 h-4 w-4" />
                 Capture
               </Button>
               <Button
-                onClick={handleStopCamera}
+                onClick={resetScanner}
                 variant="destructive"
                 className="w-full sm:w-auto"
               >
@@ -244,103 +264,84 @@ export function ComponentScanner() {
           <div className="space-y-6 animate-in fade-in-50">
             <Card>
               <CardContent className="p-6">
-                <h3 className="text-2xl font-bold font-headline text-center mb-4">
+                <h3 className="text-2xl font-bold font-headline text-center mb-1">
                   {result.componentType}
                 </h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-center">
-                  <div
-                    className={`p-4 rounded-lg flex flex-col items-center justify-center gap-2 ${
-                      result.recyclable
-                        ? 'bg-green-100 dark:bg-green-900/50'
-                        : 'bg-red-100 dark:bg-red-900/50'
-                    }`}
-                  >
-                    {result.recyclable ? (
-                      <CheckCircle2 className="h-8 w-8 text-green-600 dark:text-green-400" />
-                    ) : (
-                      <XCircle className="h-8 w-8 text-red-600 dark:text-red-400" />
-                    )}
-                    <span
-                      className={`font-semibold ${
-                        result.recyclable
-                          ? 'text-green-800 dark:text-green-200'
-                          : 'text-red-800 dark:text-red-200'
-                      }`}
-                    >
-                      {result.recyclable ? 'Recyclable' : 'Non-Recyclable'}
-                    </span>
-                  </div>
-                  <div
-                    className={`p-4 rounded-lg flex flex-col items-center justify-center gap-2 ${
-                      result.hazardFlag
-                        ? 'bg-yellow-100 dark:bg-yellow-900/50'
-                        : 'bg-gray-100 dark:bg-gray-700/50'
-                    }`}
-                  >
-                    {result.hazardFlag ? (
-                      <AlertTriangle className="h-8 w-8 text-yellow-600 dark:text-yellow-400" />
-                    ) : (
-                      <CheckCircle2 className="h-8 w-8 text-gray-500" />
-                    )}
-                    <span
-                      className={`font-semibold ${
-                        result.hazardFlag
-                          ? 'text-yellow-800 dark:text-yellow-200'
-                          : 'text-gray-800 dark:text-gray-200'
-                      }`}
-                    >
-                      {result.hazardFlag ? 'Hazardous' : 'Non-Hazardous'}
-                    </span>
-                  </div>
+                 <div className="text-center mb-4">
+                  <p className="text-sm text-muted-foreground">Confidence: <span className={`font-semibold ${getConfidenceColor(result.confidenceScore)}`}>{(result.confidenceScore * 100).toFixed(0)}%</span></p>
+                  {result.confidenceScore < 0.7 && (
+                     <p className="text-xs text-yellow-600 dark:text-yellow-400 mt-1">Low confidence. Please verify the result.</p>
+                  )}
                 </div>
-                <div className="mt-4">
-                  <label className="text-sm font-medium">Confidence</label>
-                  <Progress
-                    value={result.confidenceScore * 100}
-                    className="mt-1"
-                  />
-                  <p className="text-right text-sm text-muted-foreground mt-1">
-                    {(result.confidenceScore * 100).toFixed(0)}%
-                  </p>
+
+                <div className={`p-4 rounded-lg text-center mb-4 ${result.recyclable ? 'bg-green-100 dark:bg-green-900/50' : 'bg-red-100 dark:bg-red-900/50'}`}>
+                   {result.recyclable ? (
+                     <div className="flex items-center justify-center gap-2">
+                        <Recycle className="h-6 w-6 text-green-600 dark:text-green-400" />
+                        <h4 className="text-lg font-semibold text-green-800 dark:text-green-200">Upcycling Advised</h4>
+                     </div>
+                   ) : (
+                    <div className="flex items-center justify-center gap-2">
+                        <Flame className="h-6 w-6 text-red-600 dark:text-red-400" />
+                        <h4 className="text-lg font-semibold text-red-800 dark:text-red-200">Route to EcoBurn</h4>
+                    </div>
+                   )}
+                   {result.hazardFlag && (
+                     <div className="flex items-center justify-center gap-2 text-xs text-yellow-800 dark:text-yellow-200 mt-1">
+                       <AlertTriangle className="h-4 w-4" />
+                       <span>Potential Hazard Detected</span>
+                     </div>
+                   )}
                 </div>
               </CardContent>
+              <CardFooter className="flex flex-col gap-4 p-6 pt-0">
+                {feedback === 'unsubmitted' ? (
+                 <>
+                    <p className="text-sm text-muted-foreground">Is this classification correct?</p>
+                    <div className="flex gap-4">
+                        <Button variant="outline" onClick={() => handleFeedback(true)}>
+                            <ThumbsUp className="mr-2 h-4 w-4"/> Yes
+                        </Button>
+                        <Button variant="outline" onClick={() => handleFeedback(false)}>
+                            <ThumbsDown className="mr-2 h-4 w-4"/> No
+                        </Button>
+                    </div>
+                 </>
+                ) : (
+                    <div className="text-sm text-muted-foreground flex items-center gap-2 p-2 rounded-lg bg-secondary">
+                        <CheckCircle2 className="h-4 w-4 text-primary"/>
+                        <p>Thank you for your feedback!</p>
+                    </div>
+                )}
+              </CardFooter>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Sparkles className="text-accent" />
-                  Upcycling Ideas
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                {upcyclingIdeas.length > 0 ? (
-                  <ul className="space-y-2 list-disc pl-5">
-                    {upcyclingIdeas.map((idea, index) => (
-                      <li key={index}>{idea}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <Button
-                    onClick={handleGenerateIdeas}
-                    disabled={isIdeasLoading}
-                    className="w-full bg-accent hover:bg-accent/90"
-                  >
+            {result.recyclable && (
+                 <Card>
+                    <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Sparkles className="text-accent" />
+                        Upcycling Ideas
+                    </CardTitle>
+                    </CardHeader>
+                    <CardContent>
                     {isIdeasLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                            <span>Finding inspiration...</span>
+                        </div>
+                    ) : upcyclingIdeas.length > 0 ? (
+                        <ul className="space-y-2 list-disc pl-5">
+                        {upcyclingIdeas.map((idea, index) => (
+                            <li key={index}>{idea}</li>
+                        ))}
+                        </ul>
                     ) : (
-                      <Sparkles className="mr-2 h-4 w-4" />
+                         <p className="text-sm text-muted-foreground text-center">No upcycling ideas found for this component.</p>
                     )}
-                    Generate Creative Ideas
-                  </Button>
-                )}
-                {isIdeasLoading && (
-                  <p className="text-center text-sm text-muted-foreground mt-2">
-                    Finding inspiration...
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+                    </CardContent>
+                </Card>
+            )}
 
             <Button
               onClick={resetScanner}
