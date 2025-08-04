@@ -1,3 +1,5 @@
-import { genkit } from '@genkit-ai/next';
+import { GenerateUpcyclingIdeasInput } from '@/ai/flows/generate-upcycling-ideas'
+import { classifyComponentFlow, } from '@/ai/flows/classify-component'
+import { appRoute } from '@genkit-ai/next'
 
-export const { GET, POST } = genkit();
+export const POST = appRoute(classifyComponentFlow)

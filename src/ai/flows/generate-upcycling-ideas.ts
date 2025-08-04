@@ -36,7 +36,7 @@ Component Type: {{{componentType}}}
 Ideas:`,
 });
 
-const generateUpcyclingIdeasFlow = ai.defineFlow(
+export const generateUpcyclingIdeasFlow = ai.defineFlow(
   {
     name: 'generateUpcyclingIdeasFlow',
     inputSchema: GenerateUpcyclingIdeasInputSchema,

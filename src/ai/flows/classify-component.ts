@@ -43,7 +43,7 @@ const classifyComponentPrompt = ai.definePrompt({
   - confidenceScore: The confidence score of the classification (0-1).`,
 });
 
-const classifyComponentFlow = ai.defineFlow(
+export const classifyComponentFlow = ai.defineFlow(
   {
     name: 'classifyComponentFlow',
     inputSchema: ClassifyComponentInputSchema,
